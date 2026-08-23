@@ -1,0 +1,25 @@
+{
+  "name": "polaris-measurements-action",
+  "private": true,
+  "type": "module",
+  "description": "GitHub Action that submits CI measurements to a Polaris fitness function",
+  "scripts": {
+    "build": "tsc --noEmit && ncc build src/main.ts -o dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint . --max-warnings=0"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.10.1",
+    "@vercel/ncc": "^0.38.3",
+    "eslint": "^10.0.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.65.0",
+    "vitest": "^4.1.10"
+  }
+}

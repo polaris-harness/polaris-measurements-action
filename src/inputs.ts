@@ -1,0 +1,170 @@
+import * as fs from "node:fs";
+import { z } from "zod";
+
+export const measurementSchema = z.object({
+  criterionKey: z.string().min(1, "criterionKey must not be empty"),
+  value: z.number().refine((v) => Number.isFinite(v), "value must be finite"),
+  unit: z.string().min(1, "unit must not be empty").max(50, "unit must be at most 50 characters"),
+  observedAt: z.string().optional(),
+});
+
+export const evidenceSchema = z.array(z.record(z.string(), z.unknown()));
+
+const uuidSchema = z.string().uuid("must be a UUID");
+
+export const failOnSchema = z.enum(["never", "warn", "fail"]);
+
+export type FailOn = z.infer<typeof failOnSchema>;
+
+export type ParsedInputs = {
+  polarisURL: string;
+  fitnessFunctionId: string;
+  producerId: string;
+  fitnessFunctionVersion: number;
+  externalRunId: string;
+  observedAt: string;
+  measurements: z.infer<typeof measurementSchema>[];
+  evidence: z.infer<typeof evidenceSchema>;
+  timeoutSeconds: number;
+  maxAttempts: number;
+  failOn: FailOn;
+};
+
+type RawInputs = Record<string, string>;
+
+export function parseInputs(raw: RawInputs, env: Record<string, string | undefined>): ParsedInputs {
+  const get = (name: string): string => raw[name] ?? "";
+  const polarisURL = required(get("polaris-url"), "polaris-url");
+  new URL(polarisURL);
+
+  const externalRunId = get("external-run-id") !== "" ? get("external-run-id") : defaultRunId(env);
+
+  return {
+    polarisURL,
+    fitnessFunctionId: parseUUID(required(get("fitness-function-id"), "fitness-function-id"), "fitness-function-id"),
+    producerId: parseUUID(required(get("producer-id"), "producer-id"), "producer-id"),
+    fitnessFunctionVersion: positiveInt(get("fitness-function-version") || "1", "fitness-function-version", 1),
+    externalRunId: nonEmpty(externalRunId, "external-run-id"),
+    observedAt: timestamp(get("observed-at")),
+    measurements: parseMeasurements(get("measurements"), get("measurements-file")),
+    evidence: parseEvidence(get("evidence")),
+    timeoutSeconds: positiveInt(get("timeout-seconds") || "30", "timeout-seconds", 1),
+    maxAttempts: positiveInt(get("max-attempts") || "3", "max-attempts", 1),
+    failOn: parseFailOn(get("fail-on") || "fail"),
+  };
+}
+
+function parseFailOn(value: string): FailOn {
+  const result = failOnSchema.safeParse(value);
+  if (!result.success) {
+    throw new InputError("fail-on must be one of never, warn, or fail");
+  }
+  return result.data;
+}
+
+function required(value: string | undefined, name: string): string {
+  if (value === undefined || value.trim() === "") {
+    throw new InputError(`${name} is required`);
+  }
+  return value.trim();
+}
+
+function nonEmpty(value: string, name: string): string {
+  if (value.trim() === "") {
+    throw new InputError(`${name} must not be empty`);
+  }
+  return value.trim();
+}
+
+function parseUUID(value: string, name: string): string {
+  const result = uuidSchema.safeParse(value);
+  if (!result.success) {
+    throw new InputError(`${name} ${result.error.issues[0]?.message ?? "is invalid"}`);
+  }
+  return value;
+}
+
+function positiveInt(value: string, name: string, min: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min) {
+    throw new InputError(`${name} must be an integer >= ${min}`);
+  }
+  return parsed;
+}
+
+function timestamp(value: string): string {
+  if (value === "") {
+    return new Date().toISOString();
+  }
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    throw new InputError("observed-at must be an RFC3339 timestamp");
+  }
+  return new Date(parsed).toISOString();
+}
+
+function parseMeasurements(inline: string, filePath: string): z.infer<typeof measurementSchema>[] {
+  if ((inline.trim() !== "") === (filePath.trim() !== "")) {
+    throw new InputError("exactly one of measurements or measurements-file must be provided");
+  }
+  let payload: unknown;
+  if (inline.trim() !== "") {
+    payload = parseJSON(inline, "measurements");
+  } else {
+    if (!fs.existsSync(filePath)) {
+      throw new InputError(`measurements-file does not exist: ${filePath}`);
+    }
+    payload = parseJSON(fs.readFileSync(filePath, "utf8"), `measurements-file (${filePath})`);
+  }
+  const result = z.array(measurementSchema).min(1, "at least one measurement is required").safeParse(payload);
+  if (!result.success) {
+    throw new InputError(`measurements are invalid: ${formatIssues(result.error.issues)}`);
+  }
+  const keys = new Set<string>();
+  for (const measurement of result.data) {
+    if (keys.has(measurement.criterionKey)) {
+      throw new InputError(`measurements contain duplicate criterionKey "${measurement.criterionKey}"`);
+    }
+    keys.add(measurement.criterionKey);
+  }
+  return result.data;
+}
+
+function parseEvidence(inline: string): z.infer<typeof evidenceSchema> {
+  if (inline.trim() === "") {
+    return [];
+  }
+  const result = evidenceSchema.safeParse(parseJSON(inline, "evidence"));
+  if (!result.success) {
+    throw new InputError(`evidence is invalid: ${formatIssues(result.error.issues)}`);
+  }
+  return result.data;
+}
+
+function parseJSON(value: string, name: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new InputError(`${name} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function formatIssues(issues: z.ZodIssue[]): string {
+  return issues
+    .slice(0, 3)
+    .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+    .join("; ");
+}
+
+export function defaultRunId(env: Record<string, string | undefined>): string {
+  const run = env.GITHUB_RUN_ID ?? "local";
+  const attempt = env.GITHUB_RUN_ATTEMPT ?? "1";
+  return `github-${run}-attempt-${attempt}`;
+}
+
+export class InputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InputError";
+  }
+}

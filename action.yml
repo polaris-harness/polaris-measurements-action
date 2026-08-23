@@ -1,0 +1,71 @@
+name: 'Polaris Measurements'
+description: >-
+  Submit a CI run's measurements to a Polaris fitness function through the
+  measurement-submission endpoint. The evaluation outcome is exposed as step
+  outputs and can fail the job according to the fail-on policy.
+author: 'claudioed'
+
+branding:
+  icon: 'activity'
+  color: 'blue'
+
+inputs:
+  polaris-url:
+    description: 'Base URL of the Polaris control plane (e.g. https://polaris.example.com). The action appends the API path itself.'
+    required: true
+  fitness-function-id:
+    description: 'UUID of the fitness function the measurements belong to.'
+    required: true
+  producer-id:
+    description: 'UUID of the registered measurement producer this run submits as. Only the producer declared by the active definition is accepted.'
+    required: true
+  fitness-function-version:
+    description: 'Active fitness-function version the measurements were produced against.'
+    required: false
+    default: '1'
+  measurements:
+    description: 'Inline JSON array of measurements: [{"criterionKey":"latency","value":120,"unit":"ms"}]. Mutually exclusive with measurements-file.'
+    required: false
+    default: ''
+  measurements-file:
+    description: 'Path to a JSON file with the measurements array, produced by an earlier step. Mutually exclusive with measurements.'
+    required: false
+    default: ''
+  external-run-id:
+    description: 'Producer-scoped run identifier; the natural idempotency key. Defaults to github-<run id>-attempt-<run attempt>.'
+    required: false
+    default: ''
+  observed-at:
+    description: 'RFC3339 timestamp of when the measurements were taken (UTC). Defaults to the current time. Must be within the definition''s maximum observation age.'
+    required: false
+    default: ''
+  evidence:
+    description: 'Optional JSON array of evidence documents retained with the submission.'
+    required: false
+    default: ''
+  timeout-seconds:
+    description: 'Per-attempt request timeout in seconds.'
+    required: false
+    default: '30'
+  max-attempts:
+    description: 'Maximum attempts for transient failures (network errors, 502/503/504). Non-retryable responses are never retried.'
+    required: false
+    default: '3'
+  fail-on:
+    description: 'Exit policy for the evaluation outcome: fail (default) fails on FAIL, warn fails on WARN and FAIL, never never fails the step.'
+    required: false
+    default: 'fail'
+
+outputs:
+  evaluation-id:
+    description: 'UUID of the recorded evaluation.'
+  outcome:
+    description: 'Evaluation outcome: PASS, WARN, FAIL, ERROR, or NOT_APPLICABLE.'
+  disposition:
+    description: 'Evaluation disposition: ACCEPTED, ATTENTION_REQUIRED, BLOCKED, or WAIVED.'
+  replayed:
+    description: '"true" when Polaris deduplicated this delivery and returned the original evaluation.'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
