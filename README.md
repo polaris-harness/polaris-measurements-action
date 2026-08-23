@@ -1,5 +1,7 @@
 # Polaris Measurements Action
 
+[![Unit tests](https://github.com/claudioed/polaris-measurements-action/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/claudioed/polaris-measurements-action/actions/workflows/unit-tests.yml)
+
 A GitHub Action that submits a CI run's measurements to a [Polaris](https://github.com/claudioed/polaris)
 fitness function through the measurement-submission endpoint and turns the
 evaluation outcome into a step result.
