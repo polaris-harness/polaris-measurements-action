@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    name: Tag and publish release
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main with full history
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Verify (tests, lint, bundle)
+        run: |
+          npm ci
+          npm run test
+          npm run lint
+          npm run build
+
+      - name: Rebuild committed dist if stale
+        run: |
+          if ! git diff --exit-code -- dist/; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add dist/
+            git commit -m "chore: rebuild dist bundle"
+            echo "dist_was_stale=true" >> "$GITHUB_ENV"
+          else
+            echo "dist_was_stale=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Compute next version
+        id: version
+        run: |
+          latest=$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true)
+          if [ -z "$latest" ]; then
+            next="v1.0.0"
+          else
+            major=$(echo "$latest" | cut -d. -f1 | tr -d v)
+            minor=$(echo "$latest" | cut -d. -f2)
+            patch=$(echo "$latest" | cut -d. -f3)
+            next="v$major.$minor.$((patch + 1))"
+          fi
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "Next version: $next (previous: ${latest:-none})"
+
+      - name: Push bundle commit, tag release, move floating v1
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if [ "$dist_was_stale" = "true" ]; then
+            git push origin HEAD:main
+          fi
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          git tag -f v1 -m "Floating major tag for v1.x releases"
+          git push -f origin v1
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          {
+            echo "Merged ${PR_URL}"
+            echo
+            echo "## Changes"
+            echo
+            echo "- ${PR_TITLE} (#${PR_NUMBER})"
+            if [ "$dist_was_stale" = "true" ]; then
+              echo "- chore: rebuild dist bundle"
+            fi
+            echo
+            echo "## Usage"
+            echo
+            echo '```yaml'
+            echo "uses: claudioed/polaris-measurements-action@${TAG}   # or the floating @v1"
+            echo '```'
+          } > release-notes.md
+          gh release create "$TAG" --title "$TAG" --notes-file release-notes.md
