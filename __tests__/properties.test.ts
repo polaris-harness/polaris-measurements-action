@@ -70,7 +70,7 @@ describe("parseInputs properties", () => {
   it("normalizes any parseable observed-at to its UTC ISO instant", () => {
     fc.assert(
       fc.property(
-        fc.date({ min: new Date(Date.UTC(1990, 0, 1)), max: new Date(Date.UTC(2100, 0, 1)) }),
+        fc.date({ min: new Date(Date.UTC(1990, 0, 1)), max: new Date(Date.UTC(2100, 0, 1)), noInvalidDate: true }),
         (date) => {
           const iso = date.toISOString();
           expect(parseInputs(baseRaw({ "observed-at": iso }), {}).observedAt).toBe(iso);
@@ -133,6 +133,9 @@ describe("parseInputs properties", () => {
     fc.assert(
       fc.property(
         fc.string({ minLength: 1, maxLength: 64 }).filter((s) => {
+          if (s.trim() === "") {
+            return false;
+          }
           try {
             JSON.parse(s);
             return false;

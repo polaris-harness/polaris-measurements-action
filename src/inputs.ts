@@ -1,12 +1,8 @@
 import * as fs from "node:fs";
 import { z } from "zod";
+import { measurementSchema, loadMeasurementsConfig, extractMeasurements, ConfigError } from "./extract";
 
-export const measurementSchema = z.object({
-  criterionKey: z.string().min(1, "criterionKey must not be empty"),
-  value: z.number().refine((v) => Number.isFinite(v), "value must be finite"),
-  unit: z.string().min(1, "unit must not be empty").max(50, "unit must be at most 50 characters"),
-  observedAt: z.string().optional(),
-});
+export { measurementSchema };
 
 export const evidenceSchema = z.array(z.record(z.string(), z.unknown()));
 
@@ -24,20 +20,31 @@ export type ParsedInputs = {
   externalRunId: string;
   observedAt: string;
   measurements: z.infer<typeof measurementSchema>[];
+  /** Optional measurements declared in measurements-config whose source
+   * file/pattern did not resolve; reported so the workflow log explains
+   * why a criterion is absent instead of leaving it a silent no-op. */
+  skippedMeasurements: ExtractionFailureInfo[];
   evidence: z.infer<typeof evidenceSchema>;
   timeoutSeconds: number;
   maxAttempts: number;
   failOn: FailOn;
 };
 
+export type ExtractionFailureInfo = { criterionKey: string; reason: string };
+
 type RawInputs = Record<string, string>;
 
-export function parseInputs(raw: RawInputs, env: Record<string, string | undefined>): ParsedInputs {
+export function parseInputs(
+  raw: RawInputs,
+  env: Record<string, string | undefined>,
+  cwd: string = process.cwd(),
+): ParsedInputs {
   const get = (name: string): string => raw[name] ?? "";
   const polarisURL = required(get("polaris-url"), "polaris-url");
   new URL(polarisURL);
 
   const externalRunId = get("external-run-id") !== "" ? get("external-run-id") : defaultRunId(env);
+  const { measurements, skipped } = parseMeasurements(get("measurements"), get("measurements-file"), get("measurements-config"), cwd);
 
   return {
     polarisURL,
@@ -46,7 +53,8 @@ export function parseInputs(raw: RawInputs, env: Record<string, string | undefin
     fitnessFunctionVersion: positiveInt(get("fitness-function-version") || "1", "fitness-function-version", 1),
     externalRunId: nonEmpty(externalRunId, "external-run-id"),
     observedAt: timestamp(get("observed-at")),
-    measurements: parseMeasurements(get("measurements"), get("measurements-file")),
+    measurements,
+    skippedMeasurements: skipped,
     evidence: parseEvidence(get("evidence")),
     timeoutSeconds: positiveInt(get("timeout-seconds") || "30", "timeout-seconds", 1),
     maxAttempts: positiveInt(get("max-attempts") || "3", "max-attempts", 1),
@@ -103,10 +111,21 @@ function timestamp(value: string): string {
   return new Date(parsed).toISOString();
 }
 
-function parseMeasurements(inline: string, filePath: string): z.infer<typeof measurementSchema>[] {
-  if ((inline.trim() !== "") === (filePath.trim() !== "")) {
-    throw new InputError("exactly one of measurements or measurements-file must be provided");
+function parseMeasurements(
+  inline: string,
+  filePath: string,
+  configPath: string,
+  cwd: string,
+): { measurements: z.infer<typeof measurementSchema>[]; skipped: ExtractionFailureInfo[] } {
+  const provided = [inline.trim() !== "", filePath.trim() !== "", configPath.trim() !== ""].filter(Boolean).length;
+  if (provided !== 1) {
+    throw new InputError("exactly one of measurements, measurements-file, or measurements-config must be provided");
   }
+
+  if (configPath.trim() !== "") {
+    return parseMeasurementsFromConfig(configPath.trim(), cwd);
+  }
+
   let payload: unknown;
   if (inline.trim() !== "") {
     payload = parseJSON(inline, "measurements");
@@ -116,14 +135,37 @@ function parseMeasurements(inline: string, filePath: string): z.infer<typeof mea
     }
     payload = parseJSON(fs.readFileSync(filePath, "utf8"), `measurements-file (${filePath})`);
   }
+  return { measurements: validateMeasurements(payload, "measurements"), skipped: [] };
+}
+
+function parseMeasurementsFromConfig(
+  configPath: string,
+  cwd: string,
+): { measurements: z.infer<typeof measurementSchema>[]; skipped: ExtractionFailureInfo[] } {
+  try {
+    const config = loadMeasurementsConfig(configPath);
+    const { measurements, skipped } = extractMeasurements(config, cwd);
+    return {
+      measurements: validateMeasurements(measurements, `measurements-config (${configPath})`),
+      skipped: skipped.map((failure) => ({ criterionKey: failure.criterionKey, reason: failure.reason })),
+    };
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      throw new InputError(error.message);
+    }
+    throw error;
+  }
+}
+
+function validateMeasurements(payload: unknown, label: string): z.infer<typeof measurementSchema>[] {
   const result = z.array(measurementSchema).min(1, "at least one measurement is required").safeParse(payload);
   if (!result.success) {
-    throw new InputError(`measurements are invalid: ${formatIssues(result.error.issues)}`);
+    throw new InputError(`${label} ${label === "measurements" ? "are" : "is"} invalid: ${formatIssues(result.error.issues)}`);
   }
   const keys = new Set<string>();
   for (const measurement of result.data) {
     if (keys.has(measurement.criterionKey)) {
-      throw new InputError(`measurements contain duplicate criterionKey "${measurement.criterionKey}"`);
+      throw new InputError(`${label} ${label === "measurements" ? "contain" : "contains"} duplicate criterionKey "${measurement.criterionKey}"`);
     }
     keys.add(measurement.criterionKey);
   }

@@ -16,8 +16,8 @@ function baseRaw(overrides: Record<string, string> = {}): Record<string, string>
   };
 }
 
-function parse(raw: Record<string, string>, env: Record<string, string | undefined> = baseEnv): ParsedInputs {
-  return parseInputs(raw, env);
+function parse(raw: Record<string, string>, env: Record<string, string | undefined> = baseEnv, cwd?: string): ParsedInputs {
+  return parseInputs(raw, env, cwd);
 }
 
 describe("input parsing", () => {
@@ -146,5 +146,120 @@ describe("input parsing", () => {
     }
     expect(message).toMatch(/measurements are invalid/);
     expect(message.split("; ")).toHaveLength(3);
+  });
+
+  it("rejects any combination other than exactly one measurement source", () => {
+    expect(() => parse(baseRaw({ "measurements-config": "/tmp/x.yml" }))).toThrowError(/exactly one of measurements/i);
+    expect(() =>
+      parse(baseRaw({ "measurements-file": "/tmp/x.json", "measurements-config": "/tmp/x.yml" })),
+    ).toThrowError(/exactly one of measurements/i);
+    expect(() => parse(baseRaw({ measurements: "" }))).toThrowError(/exactly one of measurements/i);
+  });
+
+  it("discovers measurements from a measurements-config file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "polaris-action-"));
+    try {
+      writeFileSync(join(dir, "coverage.txt"), "total: 92.3%\n", "utf8");
+      writeFileSync(
+        join(dir, "config.yml"),
+        [
+          "measurements:",
+          "  - criterionKey: coverage",
+          "    unit: PERCENT",
+          "    source: { type: regex, file: coverage.txt, pattern: 'total: ([0-9.]+)%' }",
+        ].join("\n"),
+        "utf8",
+      );
+      const inputs = parse(baseRaw({ measurements: "", "measurements-config": join(dir, "config.yml") }), baseEnv, dir);
+      expect(inputs.measurements).toEqual([{ criterionKey: "coverage", value: 92.3, unit: "PERCENT" }]);
+      expect(inputs.skippedMeasurements).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces skipped optional measurements without failing the run", () => {
+    const dir = mkdtempSync(join(tmpdir(), "polaris-action-"));
+    try {
+      writeFileSync(join(dir, "coverage.txt"), "total: 92.3%\n", "utf8");
+      writeFileSync(
+        join(dir, "config.yml"),
+        [
+          "measurements:",
+          "  - criterionKey: coverage",
+          "    unit: PERCENT",
+          "    source: { type: regex, file: coverage.txt, pattern: 'total: ([0-9.]+)%' }",
+          "  - criterionKey: weekly_mutation",
+          "    unit: PERCENT",
+          "    required: false",
+          "    source: { type: json-path, file: absent-mutation-report.json, path: efficacy }",
+        ].join("\n"),
+        "utf8",
+      );
+      const inputs = parse(baseRaw({ measurements: "", "measurements-config": join(dir, "config.yml") }), baseEnv, dir);
+      expect(inputs.measurements).toHaveLength(1);
+      expect(inputs.skippedMeasurements).toEqual([
+        { criterionKey: "weekly_mutation", reason: expect.stringContaining("file not found") },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails with every missing required measurement listed when discovery can't resolve them", () => {
+    const dir = mkdtempSync(join(tmpdir(), "polaris-action-"));
+    try {
+      writeFileSync(
+        join(dir, "config.yml"),
+        [
+          "measurements:",
+          "  - criterionKey: coverage",
+          "    unit: PERCENT",
+          "    source: { type: json-path, file: missing-coverage.json, path: total }",
+          "  - criterionKey: vulnerabilities",
+          "    unit: COUNT",
+          "    source: { type: json-count, file: missing-govulncheck.json, path: Vulns }",
+        ].join("\n"),
+        "utf8",
+      );
+      let message = "";
+      try {
+        parse(baseRaw({ measurements: "", "measurements-config": join(dir, "config.yml") }), baseEnv, dir);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain("coverage");
+      expect(message).toContain("vulnerabilities");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("wraps a malformed measurements-config as an InputError", () => {
+    const dir = mkdtempSync(join(tmpdir(), "polaris-action-"));
+    try {
+      writeFileSync(join(dir, "config.yml"), "measurements: []", "utf8");
+      expect(() => parse(baseRaw({ measurements: "", "measurements-config": join(dir, "config.yml") }), baseEnv, dir)).toThrowError(InputError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a measurements-config path that does not exist", () => {
+    expect(() => parse(baseRaw({ measurements: "", "measurements-config": "/nonexistent/config.yml" }))).toThrowError(
+      /measurements-config does not exist/,
+    );
+  });
+
+  it("re-throws a non-ConfigError raised while reading measurements-config as-is", () => {
+    const dir = mkdtempSync(join(tmpdir(), "polaris-action-"));
+    try {
+      // existsSync is true for a directory, but readFileSync on it throws a raw
+      // EISDIR error rather than a ConfigError — that error must propagate
+      // unwrapped instead of being misreported as an InputError.
+      expect(() => parse(baseRaw({ measurements: "", "measurements-config": dir }))).not.toThrowError(InputError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

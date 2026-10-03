@@ -24,11 +24,22 @@ inputs:
     required: false
     default: '1'
   measurements:
-    description: 'Inline JSON array of measurements: [{"criterionKey":"latency","value":120,"unit":"ms"}]. Mutually exclusive with measurements-file.'
+    description: 'Inline JSON array of measurements: [{"criterionKey":"latency","value":120,"unit":"ms"}]. Mutually exclusive with measurements-file and measurements-config.'
     required: false
     default: ''
   measurements-file:
-    description: 'Path to a JSON file with the measurements array, produced by an earlier step. Mutually exclusive with measurements.'
+    description: 'Path to a JSON file with the measurements array, produced by an earlier step. Mutually exclusive with measurements and measurements-config.'
+    required: false
+    default: ''
+  measurements-config:
+    description: >-
+      Path to a YAML/JSON config declaring how to discover each measurement from files already
+      in the workspace (e.g. artifacts pulled by an earlier download-artifact step), instead of
+      hand-computing them. Each entry maps a criterionKey/unit to a source: regex (capture a
+      number out of any text/log file), json-path (a value at a path in a JSON file), json-count
+      (the length of a JSON array), or sarif-count (SARIF results at or above a severity level).
+      See the README's "Discovering measurements automatically" section. Mutually exclusive with
+      measurements and measurements-file.
     required: false
     default: ''
   external-run-id:

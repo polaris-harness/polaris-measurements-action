@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as core from "@actions/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { polarisError } from "../src/client";
@@ -171,6 +174,37 @@ describe("run", () => {
     expect(core.setOutput).toHaveBeenCalledWith("outcome", "FAIL");
     expect(core.debug).toHaveBeenCalledWith(expect.stringContaining("summary unavailable"));
     expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining("outcome FAIL"));
+  });
+
+  it("warns about each skipped optional measurement discovered via measurements-config", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "polaris-action-"));
+    try {
+      const configFile = join(dir, "config.yml");
+      writeFileSync(
+        configFile,
+        [
+          "measurements:",
+          "  - criterionKey: latency",
+          "    unit: ms",
+          "    source: { type: json-path, file: " + join(dir, "metrics.json") + ", path: latency }",
+          "  - criterionKey: weekly_mutation",
+          "    unit: PERCENT",
+          "    required: false",
+          "    source: { type: json-path, file: " + join(dir, "absent.json") + ", path: efficacy }",
+        ].join("\n"),
+        "utf8",
+      );
+      writeFileSync(join(dir, "metrics.json"), JSON.stringify({ latency: 120 }), "utf8");
+      stepInputs({ measurements: "", "measurements-config": configFile });
+      mocks.submitMeasurements.mockResolvedValue(EVALUATION);
+      await run();
+
+      expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('skipped optional measurement "weekly_mutation"'));
+      const [submittedInputs] = mocks.submitMeasurements.mock.calls[0] as [{ measurements: unknown[] }];
+      expect(submittedInputs.measurements).toEqual([{ criterionKey: "latency", value: 120, unit: "ms" }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
