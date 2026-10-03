@@ -93,4 +93,58 @@ describe("input parsing", () => {
     expect(defaultRunId(baseEnv)).toBe("github-417-attempt-1");
     expect(defaultRunId({})).toBe("github-local-attempt-1");
   });
+
+  it("trims polaris-url and rejects whitespace-only external-run-id", () => {
+    const inputs = parse(baseRaw({ "polaris-url": "  https://polaris.example.com  " }));
+    expect(inputs.polarisURL).toBe("https://polaris.example.com");
+    expect(() => parse(baseRaw({ "external-run-id": "   " }))).toThrowError(/external-run-id must not be empty/i);
+  });
+
+  it("keeps an explicit fitness-function-version and enforces its bounds", () => {
+    expect(parse(baseRaw({ "fitness-function-version": "7" })).fitnessFunctionVersion).toBe(7);
+    expect(() => parse(baseRaw({ "fitness-function-version": "0" }))).toThrowError(/integer >= 1/);
+    expect(() => parse(baseRaw({ "fitness-function-version": "1.5" }))).toThrowError(/integer >= 1/);
+  });
+
+  it("rejects unparseable observed-at values", () => {
+    expect(() => parse(baseRaw({ "observed-at": "definitely-not-a-timestamp" }))).toThrowError(/RFC3339/);
+  });
+
+  it("preserves per-measurement observedAt", () => {
+    const inputs = parse(baseRaw({ measurements: '[{"criterionKey":"latency","value":1,"unit":"ms","observedAt":"2026-08-22T09:15:00Z"}]' }));
+    expect(inputs.measurements[0].observedAt).toBe("2026-08-22T09:15:00Z");
+  });
+
+  it("reports the file path when measurements-file content is invalid", () => {
+    const dir = mkdtempSync(join(tmpdir(), "polaris-action-"));
+    try {
+      const badJson = join(dir, "bad.json");
+      writeFileSync(badJson, "{nope", "utf8");
+      let message = "";
+      try {
+        parse(baseRaw({ measurements: "", "measurements-file": badJson }));
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain(badJson);
+      expect(message).toMatch(/not valid JSON/);
+
+      const badShape = join(dir, "shape.json");
+      writeFileSync(badShape, '{"criterionKey":"a"}', "utf8");
+      expect(() => parse(baseRaw({ measurements: "", "measurements-file": badShape }))).toThrowError(/measurements are invalid/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("truncates schema issues to the first three", () => {
+    let message = "";
+    try {
+      parse(baseRaw({ measurements: JSON.stringify([{}, {}, {}, {}, {}]) }));
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(/measurements are invalid/);
+    expect(message.split("; ")).toHaveLength(3);
+  });
 });

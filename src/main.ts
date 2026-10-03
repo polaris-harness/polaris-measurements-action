@@ -1,4 +1,5 @@
 import * as core from "@actions/core";
+import { pathToFileURL } from "node:url";
 import { parseInputs, InputError } from "./inputs";
 import { submitMeasurements } from "./client";
 import { decide } from "./policy";
@@ -26,7 +27,7 @@ function rawInputs(): Record<string, string> {
   return raw;
 }
 
-async function run(): Promise<void> {
+export async function run(): Promise<void> {
   const apiKey = process.env.POLARIS_INGEST_SECRET_KEY ?? "";
   if (apiKey === "") {
     throw new InputError(
@@ -93,7 +94,8 @@ async function writeSummary(result: Awaited<ReturnType<typeof submitMeasurements
   }
 }
 
-run().catch((error) => {
+/** Terminal handler: converts a pipeline failure into an actionable action failure. */
+export function reportFailure(error: unknown): void {
   if (error instanceof InputError) {
     core.setFailed(`Invalid action inputs: ${error.message}`);
     return;
@@ -101,4 +103,11 @@ run().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   const detail = typeof (error as { detail?: string }).detail === "string" ? ` (${(error as { detail: string }).detail})` : "";
   core.setFailed(`${message}${detail}`);
-});
+}
+
+// Execute only when run directly (`node dist/index.js`), not when imported
+// (e.g. by the test suite).
+const invokedDirectly = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
+  run().catch(reportFailure);
+}

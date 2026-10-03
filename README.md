@@ -95,9 +95,10 @@ the step returns the original evaluation with `replayed: true`.
 
 ```sh
 npm ci
-npm run test       # vitest unit + local-server e2e suites
-npm run lint       # eslint, zero warnings allowed
-npm run build      # tsc --noEmit then ncc bundle into dist/
+npm run test            # vitest unit + local-server e2e suites
+npm run test:coverage   # same suites with a 90% coverage floor on src/
+npm run lint            # eslint, zero warnings allowed
+npm run build           # tsc --noEmit then ncc bundle into dist/
 ```
 
 `dist/index.js` is the committed bundle referenced by `action.yml`; rebuild and commit it

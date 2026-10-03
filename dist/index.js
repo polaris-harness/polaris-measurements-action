@@ -1256,7 +1256,7 @@ const child = __importStar(__nccwpck_require__(5317));
 const path = __importStar(__nccwpck_require__(6928));
 const io = __importStar(__nccwpck_require__(4994));
 const ioUtil = __importStar(__nccwpck_require__(5207));
-const timers_1 = __nccwpck_require__(3557);
+const timers_1 = __nccwpck_require__(5938);
 /* eslint-disable @typescript-eslint/unbound-method */
 const IS_WINDOWS = process.platform === 'win32';
 /*
@@ -25723,7 +25723,7 @@ module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("string_decod
 
 /***/ }),
 
-/***/ 3557:
+/***/ 5938:
 /***/ ((module) => {
 
 module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("timers");
@@ -27418,6 +27418,23 @@ module.exports = parseParams
 /******/ }
 /******/ 
 /************************************************************************/
+/******/ /* webpack/runtime/define property getters */
+/******/ (() => {
+/******/ 	// define getter functions for harmony exports
+/******/ 	__nccwpck_require__.d = (exports, definition) => {
+/******/ 		for(var key in definition) {
+/******/ 			if(__nccwpck_require__.o(definition, key) && !__nccwpck_require__.o(exports, key)) {
+/******/ 				Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 			}
+/******/ 		}
+/******/ 	};
+/******/ })();
+/******/ 
+/******/ /* webpack/runtime/hasOwnProperty shorthand */
+/******/ (() => {
+/******/ 	__nccwpck_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
+/******/ })();
+/******/ 
 /******/ /* webpack/runtime/compat */
 /******/ 
 /******/ if (typeof __nccwpck_require__ !== 'undefined') __nccwpck_require__.ab = new URL('.', import.meta.url).pathname.slice(import.meta.url.match(/^file:\/\/\/\w:/) ? 1 : 0, -1) + "/";
@@ -27425,8 +27442,16 @@ module.exports = parseParams
 /************************************************************************/
 var __webpack_exports__ = {};
 
+// EXPORTS
+__nccwpck_require__.d(__webpack_exports__, {
+  x: () => (/* binding */ reportFailure),
+  e: () => (/* binding */ run)
+});
+
 // EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
 var lib_core = __nccwpck_require__(7484);
+;// CONCATENATED MODULE: external "node:url"
+const external_node_url_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:url");
 ;// CONCATENATED MODULE: external "node:fs"
 const external_node_fs_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs");
 ;// CONCATENATED MODULE: ./node_modules/zod/v4/core/core.js
@@ -35464,6 +35489,7 @@ function decide(failOn, result) {
 
 
 
+
 const INPUT_NAMES = [
     "polaris-url",
     "fitness-function-id",
@@ -35546,7 +35572,8 @@ async function writeSummary(result) {
         lib_core.debug(`step summary unavailable: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
-run().catch((error) => {
+/** Terminal handler: converts a pipeline failure into an actionable action failure. */
+function reportFailure(error) {
     if (error instanceof InputError) {
         lib_core.setFailed(`Invalid action inputs: ${error.message}`);
         return;
@@ -35554,5 +35581,14 @@ run().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     const detail = typeof error.detail === "string" ? ` (${error.detail})` : "";
     lib_core.setFailed(`${message}${detail}`);
-});
+}
+// Execute only when run directly (`node dist/index.js`), not when imported
+// (e.g. by the test suite).
+const invokedDirectly = process.argv[1] !== undefined && import.meta.url === (0,external_node_url_namespaceObject.pathToFileURL)(process.argv[1]).href;
+if (invokedDirectly) {
+    run().catch(reportFailure);
+}
 
+var __webpack_exports__reportFailure = __webpack_exports__.x;
+var __webpack_exports__run = __webpack_exports__.e;
+export { __webpack_exports__reportFailure as reportFailure, __webpack_exports__run as run };

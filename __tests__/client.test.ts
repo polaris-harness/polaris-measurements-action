@@ -110,10 +110,10 @@ describe("submitMeasurements", () => {
     expect(error.message).toContain("unit mismatch");
   });
 
-  it("retries 503 then succeeds", async () => {
+  it.each([502, 503, 504])("retries %d then succeeds", async (status) => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse(503, { title: "unavailable" }))
+      .mockResolvedValueOnce(jsonResponse(status, { title: "unavailable", status }))
       .mockResolvedValueOnce(jsonResponse(201, evaluation()));
     const result = await submitMeasurements(inputs(), API_KEY, fetchMock as unknown as typeof fetch);
     expect(result.evaluationId).toBe("eval-1");
@@ -144,5 +144,83 @@ describe("submitMeasurements", () => {
   it("rejects malformed evaluation documents", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { unexpected: true }));
     await expect(submitMeasurements(inputs(), API_KEY, fetchMock as unknown as typeof fetch)).rejects.toThrowError(/unexpected evaluation document/);
+  });
+
+  it("does not retry a 500", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(500, { title: "Internal", status: 500 }));
+    const error = (await submitMeasurements(inputs(), API_KEY, fetchMock as unknown as typeof fetch).catch(
+      (caught: unknown) => caught,
+    )) as PolarisError;
+    expect(error.message).toMatch(/status 500/);
+    expect(error.retryable).toBe(false);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("tolerates non-JSON error bodies", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("Gateway exploded", { status: 500 }));
+    const error = (await submitMeasurements(inputs(), API_KEY, fetchMock as unknown as typeof fetch).catch(
+      (caught: unknown) => caught,
+    )) as PolarisError;
+    expect(error.message).toBe("Polaris request failed with status 500");
+    expect(error.detail).toBeUndefined();
+  });
+
+  it("uses a custom external-run-id as the idempotency key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, evaluation()));
+    await submitMeasurements(inputs({ "external-run-id": "custom-run" }), API_KEY, fetchMock as unknown as typeof fetch);
+    expect(new Headers((fetchMock.mock.calls[0] as [string, RequestInit])[1].headers).get("Idempotency-Key")).toBe("custom-run");
+  });
+
+  it("defaults missing optional evaluation fields", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { evaluationId: "eval-min", outcome: "WARN" }));
+    const result = await submitMeasurements(inputs(), API_KEY, fetchMock as unknown as typeof fetch);
+    expect(result).toMatchObject({
+      evaluationId: "eval-min",
+      outcome: "WARN",
+      disposition: "",
+      observedAt: "",
+      validUntil: "",
+      criterionResults: [],
+    });
+  });
+
+  it("preserves per-measurement observedAt in the payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, evaluation()));
+    await submitMeasurements(
+      inputs({ measurements: '[{"criterionKey":"latency","value":1,"unit":"ms","observedAt":"2026-08-22T09:15:00Z"}]' }),
+      API_KEY,
+      fetchMock as unknown as typeof fetch,
+    );
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body));
+    expect(body.measurements[0].observedAt).toBe("2026-08-22T09:15:00Z");
+  });
+
+  it("attaches a per-attempt abort signal", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, evaluation()));
+    await submitMeasurements(inputs(), API_KEY, fetchMock as unknown as typeof fetch);
+    const init = (fetchMock.mock.calls[0] as [string, RequestInit])[1];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("backs off exponentially between retries", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(503, { title: "unavailable", status: 503 }));
+      const submission = submitMeasurements(inputs({ "max-attempts": "3" }), API_KEY, fetchMock as unknown as typeof fetch);
+      const rejection = expect(submission).rejects.toThrowError(/503/);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(499);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      await rejection;
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
