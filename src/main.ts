@@ -11,6 +11,7 @@ const INPUT_NAMES = [
   "fitness-function-version",
   "measurements",
   "measurements-file",
+  "measurements-config",
   "external-run-id",
   "observed-at",
   "evidence",
@@ -37,6 +38,9 @@ export async function run(): Promise<void> {
   core.setSecret(apiKey);
 
   const inputs = parseInputs(rawInputs(), process.env);
+  for (const skipped of inputs.skippedMeasurements) {
+    core.warning(`skipped optional measurement "${skipped.criterionKey}": ${skipped.reason}`);
+  }
   const result = await submitMeasurements(inputs, apiKey);
 
   core.setOutput("evaluation-id", result.evaluationId);
