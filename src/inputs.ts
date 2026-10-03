@@ -6,7 +6,12 @@ export { measurementSchema };
 
 export const evidenceSchema = z.array(z.record(z.string(), z.unknown()));
 
-const uuidSchema = z.string().uuid("must be a UUID");
+const resourceIdSchema = z.string().refine(
+  (val) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val) ||
+    (/^[a-z0-9]+(-[a-z0-9]+)*$/.test(val) && val.length <= 63),
+  { message: "must be a UUID or slug (e.g. checkout-availability)" },
+);
 
 export const failOnSchema = z.enum(["never", "warn", "fail"]);
 
@@ -48,8 +53,8 @@ export function parseInputs(
 
   return {
     polarisURL,
-    fitnessFunctionId: parseUUID(required(get("fitness-function-id"), "fitness-function-id"), "fitness-function-id"),
-    producerId: parseUUID(required(get("producer-id"), "producer-id"), "producer-id"),
+    fitnessFunctionId: parseResourceId(required(get("fitness-function-id"), "fitness-function-id"), "fitness-function-id"),
+    producerId: parseResourceId(required(get("producer-id"), "producer-id"), "producer-id"),
     fitnessFunctionVersion: positiveInt(get("fitness-function-version") || "1", "fitness-function-version", 1),
     externalRunId: nonEmpty(externalRunId, "external-run-id"),
     observedAt: timestamp(get("observed-at")),
@@ -84,8 +89,8 @@ function nonEmpty(value: string, name: string): string {
   return value.trim();
 }
 
-function parseUUID(value: string, name: string): string {
-  const result = uuidSchema.safeParse(value);
+function parseResourceId(value: string, name: string): string {
+  const result = resourceIdSchema.safeParse(value);
   if (!result.success) {
     throw new InputError(`${name} ${result.error.issues[0]?.message ?? "is invalid"}`);
   }

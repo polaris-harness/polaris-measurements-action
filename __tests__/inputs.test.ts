@@ -73,14 +73,35 @@ describe("input parsing", () => {
     expect(() => parse(baseRaw({ measurements: duplicate }))).toThrowError(/duplicate criterionKey/i);
   });
 
-  it("rejects invalid UUIDs, URLs, integers, and fail-on values", () => {
-    expect(() => parse(baseRaw({ "fitness-function-id": "not-a-uuid" }))).toThrowError(/UUID/i);
-    expect(() => parse(baseRaw({ "producer-id": "not-a-uuid" }))).toThrowError(/UUID/i);
+  it("rejects invalid resource IDs, URLs, integers, and fail-on values", () => {
+    expect(() => parse(baseRaw({ "fitness-function-id": "INVALID ID" }))).toThrowError(/UUID or slug/i);
+    expect(() => parse(baseRaw({ "producer-id": "INVALID ID" }))).toThrowError(/UUID or slug/i);
     expect(() => parse(baseRaw({ "polaris-url": "not a url" }))).toThrowError(/Invalid URL/i);
     expect(() => parse(baseRaw({ "timeout-seconds": "0" }))).toThrowError(/integer/i);
     expect(() => parse(baseRaw({ "max-attempts": "abc" }))).toThrowError(/integer/i);
     expect(() => parse(baseRaw({ "fail-on": "sometimes" }))).toThrowError(/fail-on/i);
     expect(() => parse(baseRaw({ "polaris-url": "" }))).toThrowError(/required/i);
+  });
+
+  it("accepts slugs as well as UUIDs for fitness-function-id and producer-id", () => {
+    const inputs = parse(baseRaw({
+      "fitness-function-id": "checkout-availability",
+      "producer-id": "ci-pipeline",
+    }));
+    expect(inputs.fitnessFunctionId).toBe("checkout-availability");
+    expect(inputs.producerId).toBe("ci-pipeline");
+  });
+
+  it("rejects invalid slug shapes for resource IDs", () => {
+    // uppercase not allowed
+    expect(() => parse(baseRaw({ "fitness-function-id": "Checkout-Availability" }))).toThrowError(/UUID or slug/i);
+    // leading or trailing hyphens not allowed
+    expect(() => parse(baseRaw({ "producer-id": "-leading-hyphen" }))).toThrowError(/UUID or slug/i);
+    expect(() => parse(baseRaw({ "producer-id": "trailing-hyphen-" }))).toThrowError(/UUID or slug/i);
+    // double hyphens not allowed
+    expect(() => parse(baseRaw({ "fitness-function-id": "double--hyphen" }))).toThrowError(/UUID or slug/i);
+    // over 63 characters not allowed
+    expect(() => parse(baseRaw({ "fitness-function-id": "a".repeat(64) }))).toThrowError(/UUID or slug/i);
   });
 
   it("parses evidence documents", () => {
