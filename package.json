@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc --noEmit && ncc build src/main.ts -o dist",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "lint": "eslint . --max-warnings=0"
   },
@@ -17,7 +18,9 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.10.1",
     "@vercel/ncc": "^0.38.3",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.0.1",
+    "fast-check": "^4.10.2",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.10"

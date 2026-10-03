@@ -47,4 +47,21 @@ describe("fail-on policy", () => {
       expect(decide(failOn, result("NOT_APPLICABLE")).exitCode).toBe(0);
     }
   });
+
+  it("fails closed on unknown outcomes under any policy", () => {
+    for (const failOn of ["never", "warn", "fail"] as const) {
+      for (const outcome of ["", "SOMETHING_ELSE"]) {
+        const decision = decide(failOn, result(outcome));
+        expect(decision.exitCode).toBe(1);
+        expect(decision.annotation).toBe("error");
+        expect(decision.reason).toContain(outcome || "unknown");
+      }
+    }
+  });
+
+  it("explains the trigger in the reason", () => {
+    expect(decide("warn", result("WARN")).reason).toBe("outcome WARN with fail-on=warn");
+    expect(decide("never", result("FAIL")).reason).toBe("outcome FAIL (fail-on=never)");
+    expect(decide("fail", result("PASS")).reason).toBe("outcome PASS");
+  });
 });
