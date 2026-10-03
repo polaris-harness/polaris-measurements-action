@@ -44015,7 +44015,8 @@ function message(error) {
 
 
 const evidenceSchema = array(record(schemas_string(), unknown()));
-const uuidSchema = schemas_string().uuid("must be a UUID");
+const resourceIdSchema = schemas_string().refine((val) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val) ||
+    (/^[a-z0-9]+(-[a-z0-9]+)*$/.test(val) && val.length <= 63), { message: "must be a UUID or slug (e.g. checkout-availability)" });
 const failOnSchema = schemas_enum(["never", "warn", "fail"]);
 function parseInputs(raw, env, cwd = process.cwd()) {
     const get = (name) => raw[name] ?? "";
@@ -44025,8 +44026,8 @@ function parseInputs(raw, env, cwd = process.cwd()) {
     const { measurements, skipped } = parseMeasurements(get("measurements"), get("measurements-file"), get("measurements-config"), cwd);
     return {
         polarisURL,
-        fitnessFunctionId: parseUUID(inputs_required(get("fitness-function-id"), "fitness-function-id"), "fitness-function-id"),
-        producerId: parseUUID(inputs_required(get("producer-id"), "producer-id"), "producer-id"),
+        fitnessFunctionId: parseResourceId(inputs_required(get("fitness-function-id"), "fitness-function-id"), "fitness-function-id"),
+        producerId: parseResourceId(inputs_required(get("producer-id"), "producer-id"), "producer-id"),
         fitnessFunctionVersion: positiveInt(get("fitness-function-version") || "1", "fitness-function-version", 1),
         externalRunId: nonEmpty(externalRunId, "external-run-id"),
         observedAt: timestamp(get("observed-at")),
@@ -44057,8 +44058,8 @@ function nonEmpty(value, name) {
     }
     return value.trim();
 }
-function parseUUID(value, name) {
-    const result = uuidSchema.safeParse(value);
+function parseResourceId(value, name) {
+    const result = resourceIdSchema.safeParse(value);
     if (!result.success) {
         throw new InputError(`${name} ${result.error.issues[0]?.message ?? "is invalid"}`);
     }

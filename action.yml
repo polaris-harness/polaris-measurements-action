@@ -14,10 +14,10 @@ inputs:
     description: 'Base URL of the Polaris control plane (e.g. https://polaris.example.com). The action appends the API path itself.'
     required: true
   fitness-function-id:
-    description: 'UUID of the fitness function the measurements belong to.'
+    description: 'UUID or slug of the fitness function the measurements belong to (e.g. checkout-availability or a UUID).'
     required: true
   producer-id:
-    description: 'UUID of the registered measurement producer this run submits as. Only the producer declared by the active definition is accepted.'
+    description: 'UUID or slug of the registered measurement producer this run submits as. Only the producer declared by the active definition is accepted.'
     required: true
   fitness-function-version:
     description: 'Active fitness-function version the measurements were produced against.'
